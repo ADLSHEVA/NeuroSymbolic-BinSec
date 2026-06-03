@@ -1,0 +1,255 @@
+digraph OPM_Type_Guided_Taint_Analysis {
+    graph [
+        rankdir=TB,
+        labelloc="t",
+        label="OPM Model: AI-Enhanced Automated Taint Analysis using GNN-Based Type Recovery and Symbolic Execution APIs",
+        fontsize=18,
+        fontname="Arial",
+        splines=ortho,
+        nodesep=0.65,
+        ranksep=0.85
+    ];
+
+    node [
+        fontname="Arial",
+        fontsize=11,
+        shape=box,
+        style="rounded"
+    ];
+
+    edge [
+        fontname="Arial",
+        fontsize=10
+    ];
+
+    // =========================
+    // Objects
+    // =========================
+
+    SourceCode [
+        label="C Test Program\n[state: source available for ground truth]",
+        shape=box
+    ];
+
+    Binary [
+        label="Binary Program\nELF x86_64\n[state: stripped]",
+        shape=box
+    ];
+
+    GroundTruth [
+        label="Ground Truth Labels\n- expected source\n- expected sink\n- expected vulnerable path\n- original variable types",
+        shape=box
+    ];
+
+    VEXIR [
+        label="Intermediate Representation\nVEX IR",
+        shape=box
+    ];
+
+    CFG [
+        label="Control Flow Graph\nCFG",
+        shape=box
+    ];
+
+    DFG [
+        label="Data Flow Graph\nDFG",
+        shape=box
+    ];
+
+    TypeRecoveryOutput [
+        label="Type Recovery Output\nGNN-based type hints\n- variable types\n- pointer/buffer labels\n- function signature hints\n- confidence scores",
+        shape=box
+    ];
+
+    TypedIR [
+        label="Typed Intermediate Representation\nSemantics-Augmented IR\nVEX IR + CFG/DFG + Type Metadata",
+        shape=box
+    ];
+
+    TaintSpec [
+        label="Taint Specification\n- source definitions\n- sink definitions\n- propagation rules",
+        shape=box
+    ];
+
+    SymbolicState [
+        label="Symbolic Execution State\n- symbolic variables\n- path constraints\n- memory/register state",
+        shape=box
+    ];
+
+    ExecutionPaths [
+        label="Execution Path Set\n- feasible paths\n- prioritized paths\n- pruned paths",
+        shape=box
+    ];
+
+    TaintState [
+        label="Taint State\n- tainted variables\n- tainted memory\n- tainted registers",
+        shape=box
+    ];
+
+    TaintTrace [
+        label="Taint Trace\nsource-to-sink propagation path",
+        shape=box
+    ];
+
+    EvaluationMetrics [
+        label="Evaluation Metrics\n- precision\n- recall\n- F1-score\n- false positives\n- false negatives\n- paths explored\n- analysis time",
+        shape=box
+    ];
+
+    Report [
+        label="Analysis Report\n[state: generated]",
+        shape=box
+    ];
+
+    // =========================
+    // Processes
+    // =========================
+
+    Compilation [
+        label="Compilation and Stripping",
+        shape=ellipse
+    ];
+
+    GroundTruthExtraction [
+        label="Ground Truth Extraction",
+        shape=ellipse
+    ];
+
+    CodeLifting [
+        label="Code Lifting\nangr / VEX",
+        shape=ellipse
+    ];
+
+    CFGRecovery [
+        label="CFG Recovery\nangr CFGFast",
+        shape=ellipse
+    ];
+
+    DFGConstruction [
+        label="DFG Construction",
+        shape=ellipse
+    ];
+
+    GNNSemanticInference [
+        label="GNN-Based Type Recovery\nTYGR-style component",
+        shape=ellipse
+    ];
+
+    TypeMetadataInjection [
+        label="Type Metadata Injection",
+        shape=ellipse
+    ];
+
+    TypeGuidedSymbolicExecution [
+        label="Type-Guided Symbolic Execution\nusing symbolic execution APIs",
+        shape=ellipse
+    ];
+
+    PathPrioritization [
+        label="Type-Aware Path Prioritization\nlightweight rule-based strategy",
+        shape=ellipse
+    ];
+
+    TaintPropagation [
+        label="Automated Taint Propagation",
+        shape=ellipse
+    ];
+
+    SourceSinkChecking [
+        label="Source-Sink Checking",
+        shape=ellipse
+    ];
+
+    Evaluation [
+        label="Evaluation and Comparison",
+        shape=ellipse
+    ];
+
+    ReportGeneration [
+        label="Report Generation",
+        shape=ellipse
+    ];
+
+    // =========================
+    // Main procedural links
+    // =========================
+
+    SourceCode -> Compilation [label="consumed by"];
+    Compilation -> Binary [label="yields"];
+
+    SourceCode -> GroundTruthExtraction [label="supports"];
+    GroundTruthExtraction -> GroundTruth [label="yields"];
+
+    Binary -> CodeLifting [label="consumed by"];
+    CodeLifting -> VEXIR [label="yields"];
+
+    Binary -> CFGRecovery [label="consumed by"];
+    CFGRecovery -> CFG [label="yields"];
+
+    VEXIR -> DFGConstruction [label="consumed by"];
+    CFG -> DFGConstruction [label="supports"];
+    DFGConstruction -> DFG [label="yields"];
+
+    CFG -> GNNSemanticInference [label="consumed by"];
+    DFG -> GNNSemanticInference [label="consumed by"];
+    GNNSemanticInference -> TypeRecoveryOutput [label="yields"];
+
+    VEXIR -> TypeMetadataInjection [label="consumed by"];
+    CFG -> TypeMetadataInjection [label="supports"];
+    DFG -> TypeMetadataInjection [label="supports"];
+    TypeRecoveryOutput -> TypeMetadataInjection [label="consumed by"];
+    TypeMetadataInjection -> TypedIR [label="yields"];
+
+    TypedIR -> PathPrioritization [label="enables"];
+    TypeRecoveryOutput -> PathPrioritization [label="guides"];
+    PathPrioritization -> TypeGuidedSymbolicExecution [label="controls"];
+
+    TypedIR -> TypeGuidedSymbolicExecution [label="consumed by"];
+    TypeGuidedSymbolicExecution -> SymbolicState [label="updates"];
+    TypeGuidedSymbolicExecution -> ExecutionPaths [label="yields"];
+
+    ExecutionPaths -> TaintPropagation [label="consumed by"];
+    TaintSpec -> TaintPropagation [label="defines"];
+    TypedIR -> TaintPropagation [label="guides"];
+    TaintPropagation -> TaintState [label="updates"];
+
+    TaintState -> SourceSinkChecking [label="consumed by"];
+    ExecutionPaths -> SourceSinkChecking [label="consumed by"];
+    TaintSpec -> SourceSinkChecking [label="defines"];
+    SourceSinkChecking -> TaintTrace [label="yields"];
+
+    TaintTrace -> Evaluation [label="consumed by"];
+    GroundTruth -> Evaluation [label="used for comparison"];
+    Evaluation -> EvaluationMetrics [label="yields"];
+
+    TaintTrace -> ReportGeneration [label="consumed by"];
+    EvaluationMetrics -> ReportGeneration [label="consumed by"];
+    ReportGeneration -> Report [label="yields"];
+
+    // =========================
+    // AI-enhancement explanation
+    // =========================
+
+    TypeRecoveryOutput -> TaintPropagation [
+        label="enhances taint precision",
+        style=dashed
+    ];
+
+    TypeRecoveryOutput -> TypeGuidedSymbolicExecution [
+        label="enhances path selection",
+        style=dashed
+    ];
+
+    TypeRecoveryOutput -> SourceSinkChecking [
+        label="enhances source/sink reasoning",
+        style=dashed
+    ];
+
+    // =========================
+    // Rank hints
+    // =========================
+
+    { rank=same; CFG; DFG; }
+    { rank=same; TypeRecoveryOutput; TypedIR; }
+    { rank=same; SymbolicState; ExecutionPaths; }
+    { rank=same; TaintState; TaintTrace; }

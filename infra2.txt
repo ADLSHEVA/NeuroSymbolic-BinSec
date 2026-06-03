@@ -1,0 +1,401 @@
+digraph OPM_AI_Enhanced_Taint_Analysis_V2 {
+    graph [
+        rankdir=TB,
+        labelloc="t",
+        label="OPM Model V2: AI-Enhanced Automated Taint Analysis\n(GNN Type Recovery + LLM Orchestrator + CoT Reasoning + Symbolic Evidence)",
+        fontsize=18,
+        fontname="Arial",
+        splines=ortho,
+        nodesep=0.65,
+        ranksep=0.85
+    ];
+
+    node [
+        fontname="Arial",
+        fontsize=11,
+        shape=box,
+        style="rounded"
+    ];
+
+    edge [
+        fontname="Arial",
+        fontsize=10
+    ];
+
+    // =========================
+    // Objects (数据对象)
+    // =========================
+
+    SourceCode [
+        label="C Source Code\n[state: available for ground truth]",
+        shape=box
+    ];
+
+    Binary [
+        label="Binary Program\nELF x86_64\n[state: stripped]",
+        shape=box
+    ];
+
+    BinaryDebug [
+        label="Binary with Debug Info\n[state: DWARF symbols]",
+        shape=box
+    ];
+
+    GroundTruth [
+        label="Ground Truth Labels\n- expected sources\n- expected sinks\n- expected taint paths\n- original variable types",
+        shape=box
+    ];
+
+    VEXIR [
+        label="Intermediate Representation\n(VEX IR)",
+        shape=box
+    ];
+
+    CFG [
+        label="Control Flow Graph\n(CFG)",
+        shape=box
+    ];
+
+    DFG [
+        label="Data Flow Graph\n(DFG)",
+        shape=box
+    ];
+
+    CallGraph [
+        label="Call Graph\n- function calls\n- call sites\n- caller/callee relations",
+        shape=box
+    ];
+
+    TypeRecoveryOutput [
+        label="Type Recovery Output\nGNN-based type hints\n- variable types\n- pointer/buffer labels\n- function signatures\n- confidence scores",
+        shape=box
+    ];
+
+    GNNAttentionReport [
+        label="GNN Attention Report\n- node importance\n- graph embeddings\n- semantic similarity\n- critical data flow nodes",
+        shape=box
+    ];
+
+    TypedIR [
+        label="Typed Intermediate Representation\n(Semantics-Augmented IR)\nVEX IR + CFG/DFG + Type Metadata",
+        shape=box
+    ];
+
+    TaintSpec [
+        label="Taint Specification\n- source definitions\n- sink definitions\n- propagation rules",
+        shape=box
+    ];
+
+    SymbolicState [
+        label="Symbolic Execution State\n- symbolic variables\n- path constraints\n- memory/register state",
+        shape=box
+    ];
+
+    ExecutionPaths [
+        label="Execution Path Set\n- feasible paths\n- prioritized paths\n- pruned paths",
+        shape=box
+    ];
+
+    SymbolicEvidence [
+        label="Symbolic Evidence\n- path constraints\n- parameter ranges\n- GNN insights\n- call stack info",
+        shape=box
+    ];
+
+    AIOrchestrator [
+        label="AI Orchestrator\n(LLM Decision Agent)\n- mimo-v2.5-pro\n- CoT Reasoning\n- Soft Threshold\n- Context Enrichment",
+        shape=box
+    ];
+
+    TaintState [
+        label="Taint State\n- tainted variables\n- tainted memory\n- lifecycle tracking\n- UAF detection",
+        shape=box
+    ];
+
+    TaintTrace [
+        label="Taint Trace\nsource-to-sink propagation\n+ LLM confidence scores\n+ CoT reasoning",
+        shape=box
+    ];
+
+    EvaluationMetrics [
+        label="Evaluation Metrics\n- precision\n- recall\n- F1-score\n- false positives\n- false negatives\n- paths explored",
+        shape=box
+    ];
+
+    Report [
+        label="Analysis Report\n[state: generated]\n- JSON format\n- Markdown format",
+        shape=box
+    ];
+
+    // =========================
+    // Processes (处理过程)
+    // =========================
+
+    Compilation [
+        label="Compilation\nand Stripping",
+        shape=ellipse
+    ];
+
+    GroundTruthExtraction [
+        label="Ground Truth\nExtraction",
+        shape=ellipse
+    ];
+
+    CodeLifting [
+        label="Code Lifting\n(angr / VEX)",
+        shape=ellipse
+    ];
+
+    CFGRecovery [
+        label="CFG Recovery\n(angr CFGFast)",
+        shape=ellipse
+    ];
+
+    DFGConstruction [
+        label="DFG Construction",
+        shape=ellipse
+    ];
+
+    CallAnalysis [
+        label="Call Graph\nAnalysis",
+        shape=ellipse
+    ];
+
+    GNNSemanticInference [
+        label="GNN-Based Type Recovery\n(GAT + TYGR)",
+        shape=ellipse
+    ];
+
+    AttentionAnalysis [
+        label="GNN Attention\nAnalysis",
+        shape=ellipse
+    ];
+
+    TypeMetadataInjection [
+        label="Type Metadata\nInjection",
+        shape=ellipse
+    ];
+
+    PathPrioritization [
+        label="Path Prioritization\n+ Heuristic Pruning",
+        shape=ellipse
+    ];
+
+    SymbolicExecution [
+        label="Type-Guided\nSymbolic Execution",
+        shape=ellipse
+    ];
+
+    ConstraintExtraction [
+        label="Symbolic Constraint\nExtraction",
+        shape=ellipse
+    ];
+
+    AIOrchestration [
+        label="AI Orchestration\n(mimo-v2.5-pro API)",
+        shape=ellipse
+    ];
+
+    CoTReasoning [
+        label="Chain-of-Thought\n(CoT) Reasoning",
+        shape=ellipse
+    ];
+
+    ContextEnrichment [
+        label="Context\nEnrichment",
+        shape=ellipse
+    ];
+
+    TaintPropagation [
+        label="Taint Propagation\n+ Lifecycle Tracking",
+        shape=ellipse
+    ];
+
+    SourceSinkChecking [
+        label="Source-Sink Checking\n+ LLM Validation",
+        shape=ellipse
+    ];
+
+    CounterfactualValidation [
+        label="Counterfactual\nValidation",
+        shape=ellipse
+    ];
+
+    Evaluation [
+        label="Evaluation\nand Comparison",
+        shape=ellipse
+    ];
+
+    ReportGeneration [
+        label="Report\nGeneration",
+        shape=ellipse
+    ];
+
+    // =========================
+    // Stage 1: 编译与Ground Truth
+    // =========================
+
+    SourceCode -> Compilation [label="consumed by"];
+    Compilation -> Binary [label="yields stripped"];
+    Compilation -> BinaryDebug [label="yields debug"];
+
+    SourceCode -> GroundTruthExtraction [label="supports"];
+    GroundTruthExtraction -> GroundTruth [label="yields"];
+
+    // =========================
+    // Stage 2: 二进制分析
+    // =========================
+
+    Binary -> CodeLifting [label="consumed by"];
+    CodeLifting -> VEXIR [label="yields"];
+
+    Binary -> CFGRecovery [label="consumed by"];
+    CFGRecovery -> CFG [label="yields"];
+
+    VEXIR -> DFGConstruction [label="consumed by"];
+    CFG -> DFGConstruction [label="supports"];
+    DFGConstruction -> DFG [label="yields"];
+
+    CFG -> CallAnalysis [label="consumed by"];
+    CallAnalysis -> CallGraph [label="yields"];
+
+    // =========================
+    // Stage 3: GNN类型恢复
+    // =========================
+
+    CFG -> GNNSemanticInference [label="consumed by"];
+    DFG -> GNNSemanticInference [label="consumed by"];
+    GNNSemanticInference -> TypeRecoveryOutput [label="yields"];
+
+    CFG -> AttentionAnalysis [label="consumed by"];
+    DFG -> AttentionAnalysis [label="consumed by"];
+    AttentionAnalysis -> GNNAttentionReport [label="yields"];
+
+    // =========================
+    // Stage 4: 类型元数据注入
+    // =========================
+
+    VEXIR -> TypeMetadataInjection [label="consumed by"];
+    CFG -> TypeMetadataInjection [label="supports"];
+    DFG -> TypeMetadataInjection [label="supports"];
+    TypeRecoveryOutput -> TypeMetadataInjection [label="consumed by"];
+    TypeMetadataInjection -> TypedIR [label="yields"];
+
+    // =========================
+    // Stage 5: 路径优先级与符号执行
+    // =========================
+
+    TypedIR -> PathPrioritization [label="enables"];
+    TypeRecoveryOutput -> PathPrioritization [label="guides"];
+    PathPrioritization -> ExecutionPaths [label="yields"];
+
+    TypedIR -> SymbolicExecution [label="consumed by"];
+    ExecutionPaths -> SymbolicExecution [label="consumed by"];
+    SymbolicExecution -> SymbolicState [label="yields"];
+
+    SymbolicState -> ConstraintExtraction [label="consumed by"];
+    ConstraintExtraction -> SymbolicEvidence [label="yields"];
+
+    // =========================
+    // Stage 6: AI编排 (核心创新)
+    // =========================
+
+    CallGraph -> AIOrchestration [label="consumed by"];
+    TypeRecoveryOutput -> AIOrchestration [label="consumed by"];
+    GNNAttentionReport -> AIOrchestration [label="consumed by"];
+    TaintSpec -> AIOrchestration [label="consumed by"];
+    AIOrchestration -> AIOrchestrator [label="yields"];
+
+    AIOrchestrator -> CoTReasoning [label="uses"];
+    SymbolicEvidence -> CoTReasoning [label="provides evidence"];
+    CallGraph -> ContextEnrichment [label="provides call stack"];
+    SymbolicEvidence -> ContextEnrichment [label="provides constraints"];
+    ContextEnrichment -> CoTReasoning [label="enriches context"];
+
+    // =========================
+    // Stage 7: 污点分析
+    // =========================
+
+    ExecutionPaths -> TaintPropagation [label="consumed by"];
+    TaintSpec -> TaintPropagation [label="defines"];
+    TypedIR -> TaintPropagation [label="guides"];
+    CallGraph -> TaintPropagation [label="provides call info"];
+    TaintPropagation -> TaintState [label="updates"];
+
+    TaintState -> SourceSinkChecking [label="consumed by"];
+    ExecutionPaths -> SourceSinkChecking [label="consumed by"];
+    TaintSpec -> SourceSinkChecking [label="defines"];
+    AIOrchestrator -> SourceSinkChecking [label="validates with LLM"];
+    SourceSinkChecking -> TaintTrace [label="yields"];
+
+    TaintTrace -> CounterfactualValidation [label="consumed by"];
+    CounterfactualValidation -> TaintTrace [label="filters"];
+
+    // =========================
+    // Stage 8: 评估与报告
+    // =========================
+
+    TaintTrace -> Evaluation [label="consumed by"];
+    GroundTruth -> Evaluation [label="used for comparison"];
+    Evaluation -> EvaluationMetrics [label="yields"];
+
+    TaintTrace -> ReportGeneration [label="consumed by"];
+    EvaluationMetrics -> ReportGeneration [label="consumed by"];
+    ReportGeneration -> Report [label="yields"];
+
+    // =========================
+    // AI增强说明 (虚线)
+    // =========================
+
+    TypeRecoveryOutput -> TaintPropagation [
+        label="enhances taint precision",
+        style=dashed
+    ];
+
+    TypeRecoveryOutput -> SymbolicExecution [
+        label="enhances path selection",
+        style=dashed
+    ];
+
+    TypeRecoveryOutput -> SourceSinkChecking [
+        label="enhances source/sink reasoning",
+        style=dashed
+    ];
+
+    GNNAttentionReport -> CoTReasoning [
+        label="provides graph evidence",
+        style=dashed
+    ];
+
+    AIOrchestrator -> SymbolicExecution [
+        label="controls strategy",
+        style=dashed
+    ];
+
+    AIOrchestrator -> TaintPropagation [
+        label="guides propagation",
+        style=dashed
+    ];
+
+    AIOrchestrator -> PathPrioritization [
+        label="influences priority",
+        style=dashed
+    ];
+
+    SymbolicEvidence -> SourceSinkChecking [
+        label="provides hard proof",
+        style=dashed
+    ];
+
+    // =========================
+    // Rank hints (布局优化)
+    // =========================
+
+    { rank=same; Binary; BinaryDebug; }
+    { rank=same; VEXIR; CFG; }
+    { rank=same; DFG; CallGraph; }
+    { rank=same; TypeRecoveryOutput; GNNAttentionReport; }
+    { rank=same; TypedIR; SymbolicState; }
+    { rank=same; ExecutionPaths; SymbolicEvidence; }
+    { rank=same; AIOrchestrator; TaintState; }
+    { rank=same; TaintTrace; EvaluationMetrics; }
+}
