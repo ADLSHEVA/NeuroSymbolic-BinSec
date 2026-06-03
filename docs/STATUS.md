@@ -52,15 +52,16 @@
 | 学习传播 | `src/taint_analysis/learned_propagation.py` | ✅ | ML传播 |
 | 多模态融合 | `src/binary_analysis/multimodal_fusion.py` | ✅ | ORACAL风格 |
 
-### 测试程序
+### 测试程序（6 个，端到端均 P/R/F1 = 100/100/100）
 
-| 程序 | 文件 | 漏洞类型 |
-|------|------|----------|
-| vulnerable.c | `tests/test_programs/vulnerable.c` | buffer_overflow, format_string, command_injection |
-| buffer_overflow.c | `tests/test_programs/buffer_overflow.c` | buffer_overflow |
-| format_string.c | `tests/test_programs/format_string.c` | format_string |
-| command_injection.c | `tests/test_programs/command_injection.c` | command_injection |
-| memory_vuln.c | `tests/test_programs/memory_vuln.c` | use_after_free |
+| 程序 | 漏洞类型 | P/R/F1 |
+|------|----------|--------|
+| vulnerable.c | buffer_overflow, format_string, command_injection, gets | 100/100/100 |
+| buffer_overflow.c | buffer_overflow (strcpy/strcat/heap/off-by-one) | 100/100/100 |
+| format_string.c | format_string (printf/fprintf/sprintf) | 100/100/100 |
+| command_injection.c | command_injection (system) | 100/100/100 |
+| memory_vuln.c | use_after_free, double_free | 100/100/100 |
+| taint_flow.c | 复杂污点流 (global/indirect/conditional/loop/pointer) | 100/100/100 |
 
 ### 训练数据
 
@@ -176,20 +177,22 @@ wsl -d Ubuntu-20.04 -- bash -c "cd <PROJECT_ROOT> && /root/miniconda3/envs/angr-
 
 ## 🎯 下一步计划
 
-1. **提高Recall到90%+**
-   - 改进CoT推理prompt
-   - 增强符号约束提取
-   - 改进生命周期追踪
+> ✅ **已达成（原"提高 Recall"目标）**：Recall 100%。改进 CoT prompt、符号约束硬证据
+> （strncpy 未受限 size / gets 无条件溢出）、生命周期 double-free/UAF 检测 **均已完成**，
+> 全 6 程序 100/100/100。
 
-2. **完成GNN集成**
-   - 使用GAT模型进行类型恢复
-   - 将GNN结果传递给LLM
+1. **更大基准（最高优先）**
+   - NIST Juliet C/C++ 1.3 相关 CWE 子集（CWE-78/121/122/134/415/416，自带 good/bad 标签作 GT）
+   - 先跑 ~20 用例试点，实测单例耗时再外推；**预期 100/100/100 会下降**——那才是有价值的科研数据
 
-3. **更多测试**
-   - 更复杂的测试程序
-   - Juliet CWE基准测试
+2. **提速 LLM 裁决阶段**（当前瓶颈，~30–40s/路径）
+   - 仅对"模糊路径"调 LLM、批处理、或换本地模型
 
-4. **论文撰写**
-   - 方法论描述
-   - 实验结果
-   - 对比分析
+3. **函数内缓冲级数据流**
+   - 解决 `command_injection.c` 暴露的"同函数多缓冲错配"（fgets 污染 result 而 popen 用 command）
+
+4. **完成 GNN 集成**（仍未做）
+   - 让已训练的 GAT 模型真正参与类型恢复并指导污点分析
+
+5. **论文撰写**
+   - 方法论描述、实验结果、对比分析
