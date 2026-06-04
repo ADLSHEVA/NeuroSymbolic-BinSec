@@ -244,7 +244,7 @@ python scripts/run_batch_tests.py
 
 ## 📈 指标演进总表（v1 → 最终）
 
-> v1–v11 为 `vulnerable.c` 单程序指标；v12 为**全 6 程序**汇总。
+> v1–v11 为 `vulnerable.c` 单程序指标；v12–v13 为**全 6 程序**汇总（v13 另含真实基准）。
 
 | 版本 | P | R | F1 | 改进内容 | 范围 |
 |------|-----|-----|-----|----------|------|
@@ -259,17 +259,39 @@ python scripts/run_batch_tests.py
 | v9 | 80% | 100% | 88.89% | **作用域感知 GT + 推理模型裁决复活**（查明 83% 召回实为幽灵 GT + LLM 静默失效；修复后暴露 2 个真实 FP）| vulnerable.c |
 | v10 | 100% | 87.5% | 93.33% | **污点引擎 4 处跨函数作用域守卫**（清除 argv→gets、gets→strcpy 误报）| vulnerable.c |
 | v11 | 100% | 100% | 100% | **gets 无条件栈溢出铁证**（钉死 gets→gets，消除温度抖动）| vulnerable.c |
-| **v12** | **100%** | **100%** | **100%** | **生命周期状态机计分 + printf .rodata 守卫 + 注释剥离 + 可达性过滤** | **全 6 程序 (TP/FP/FN=27/0/0)** |
+| v12 | 100% | 100% | 100% | 生命周期状态机计分 + printf .rodata 守卫 + 注释剥离 + 可达性过滤 | 全 6 程序 (27/0/0) |
+| **v13** | **100%** | **100%** | **100%** | **GNN 真正接入（官方 GlowGNN）+ PIE 基址对齐 + 类型驱动 sink + 真实基准验证** | 全 6 程序 (27/0/0) |
 
-**v12 全 6 程序明细（均 100/100/100）**：vulnerable、memory_vuln、format_string、buffer_overflow、taint_flow、command_injection。
+**v13 全 6 程序仍 100/100/100**（GNN 开启,零回归）：vulnerable、memory_vuln、format_string、buffer_overflow、taint_flow、command_injection。
 
-## 🧪 方法学贡献（v9–v12）
+### v13 详解：从"组件正确"到"真实可信"
+
+v1–v12 一直在 6 个自建程序上打磨,**v12 的 100% 只证明各项修复正确,不能外推**。v13 做了两件让结果可信的大事:
+
+**① GNN 从空壳变成真正工作的核心**（此前 6 程序的 100% 是在 GNN 不参与下达成的）
+- 接入 TYGR **官方预训练 GlowGNN 模型**(真实 TYDA 训练 → char*/f32*/array/struct),经版本忠实复刻的 `tygr-orig` 环境子进程调用
+- **PIE 基址对齐**:DWARF `low_pc` ↔ angr 重定位地址,类型精确归到真实 CFG 函数
+- **类型驱动 sink 识别**(`OPM_TYPE_SINKS`):补回名字/结构启发式漏掉的自定义缓冲 sink
+
+**② 真实第三方基准验证（NIST Juliet 38 例）**——指标如实从 toy 100% 降到真实水平,并量化 GNN 价值:
+
+| Juliet 38 例 | Precision | Recall | F1 |
+|---|---|---|---|
+| 标准（名字/结构启发式） | 0.794 | 0.711 | 0.750 |
+| **+GNN 类型驱动** | 0.833 | **0.921** | **0.875** |
+
+> GNN 把召回 **0.711 → 0.921**(救回 8 个名字匹配漏掉的 CWE121 栈溢出)。这是"GNN 有用"在真实数据上的**量化证据**。详见 [JULIET_PILOT.md](docs/JULIET_PILOT.md)、[GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md)、[IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md)。
+
+## 🧪 方法学贡献（v9–v13）
 
 1. **作用域感知 Ground Truth 与污点引擎** —— 逐函数追踪污点，消除"全局同名变量跨作用域错连"产生的幽灵漏报/误报。
 2. **推理模型裁决复活** —— mimo-v2.5-pro 的隐藏推理 token 计入 `max_tokens`，1024 时可见 JSON 被截断、裁决静默默认 0.5；提升至 4096 + 容错解析 + 决策字段前置。
 3. **对象生命周期状态机** —— 将数据流 source→sink 模型无法表达的 double-free / use-after-free 以 `(函数名, 漏洞类型)` 在 GT 与分析器两侧归一化对齐并计分。
 4. **printf 格式串 .rodata 守卫** —— 为克服纯二进制分析中格式化字符串歧义的传统局限，用 angr 反汇编 printf/fprintf 调用点，判定格式参数寄存器是否经 `lea reg,[rip+disp]` 指向 `.rodata` 字面量；**保守**降级（仅全部确证为字面量才视为非漏洞），真实 `printf(tainted)` 一律保留。
 5. **注释剥离 + 可达性过滤** —— GT 剥离 C 注释（避免把注释掉的调用当真调用）；分析器按 main 的 callee 闭包丢弃死代码中的数据流路径（生命周期漏洞豁免）。
+6. **（v13）GNN 类型恢复工程化接入** —— 官方 GlowGNN 死绑 torch1.8/PyG1.7/angr-pyvex 9.0.7491（pickle 跨版本 + VEX 边词表 edge_dim=44 锁死），用独立 `tygr-orig` 环境 + 子进程隔离解决；**PIE 基址对齐**让 DWARF `low_pc` 映射到 angr 重定位地址。
+7. **（v13）类型驱动 sink 识别** —— 把"无名 + GNN 标 char\* 缓冲 + 在调用图中"的自定义函数补成 sink 候选并连出污点路径,补回名字/结构启发式漏掉的检出（全剥离 + 手工缓冲拷贝场景);GT 支持 `// @vuln:` 注解。
+8. **（v13）真实基准评估法** —— 用 NIST Juliet 自带 good/bad + `OMITGOOD/OMITBAD` 宏编译正/负例,正例应检出、负例不应,据此算 P/R/F1;诚实暴露指标下降与 GNN 增量召回。
 
 ## 🔧 核心功能
 
