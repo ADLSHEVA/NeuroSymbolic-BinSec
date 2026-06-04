@@ -1,16 +1,32 @@
-# OPM: AI-Enhanced Automated Taint Analysis System
+# NeuroSymbolic-BinSec (OPM): AI-Enhanced Automated Taint Analysis System
 
-> **毕设项目**: 基于GNN类型恢复和LLM智能编排的自动化污点分析系统
+> **毕设项目**: 基于 **GNN 类型恢复 + 符号执行硬证据 + LLM 裁决** 的、面向 stripped 二进制的神经-符号自动化污点分析系统。
 
-## 📊 最新指标（全 6 测试程序端到端）
+## ✨ 最新进展（v13：GNN 真正接入 + 真实基准验证）
 
-| 指标 | 值 | 说明 |
-|------|-----|------|
-| **Precision** | 100% | 零误报（FP=0）|
-| **Recall** | 100% | 零漏报（FN=0）|
-| **F1-Score** | 100% | 6/6 程序全部 100/100/100 |
+- ✅ **GNN 类型恢复真正接入**：集成 [TYGR](https://github.com/sefcom/TYGR) **官方预训练 GlowGNN 模型**（真实 TYDA 训练，产出 `char*/f32*/array/struct` 精确类型），经版本忠实复刻的 `tygr-orig` 环境由主流程子进程调用。此前的 `gat_model.pt` 是零特征空壳。
+- ✅ **真实基准试点（NIST Juliet 38 例）**：标准 F1=0.75（R=0.71）→ **GNN 类型驱动 F1=0.875（R=0.921）**，救回 8 个名字匹配漏掉的 CWE121 栈溢出。详见 [JULIET_PILOT.md](docs/JULIET_PILOT.md)。
+- ✅ **GNN 不可替代价值实证**：全剥离（`--strip-all`）后函数名丢失，GNN 仍恢复类型语义；自定义手工缓冲 sink 从 0/0/0 → 1.0。
 
-> 汇总 TP/FP/FN = 27/0/0。原"R=83.33%"系仅 vulnerable.c 且被**幽灵 Ground Truth + LLM 裁决静默失效**双重低估，详见 `docs/STATUS.md` 指标演进与 `docs/INTERNAL.md` 方法学。
+| 指标基准 | Precision | Recall | F1 |
+|------|-----|-----|-----|
+| 6 个自建测试程序（端到端） | 100% | 100% | 100% (27/0/0) |
+| **NIST Juliet 38 例（标准）** | 0.794 | 0.711 | 0.750 |
+| **NIST Juliet 38 例（+GNN 类型驱动）** | 0.833 | **0.921** | **0.875** |
+
+> 6 程序的 100% 仅验证组件协同正确（toy 基准不可外推）；**Juliet 真实数据上指标如实下降**，且量化了 GNN 的价值——这是更可信的科研证据。
+
+## 📚 文档导航
+
+| 文档 | 内容 |
+|------|------|
+| [GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md) | GNN 类型恢复接入的完整说明（架构/数据流/上手）|
+| [VERSION_COMPAT.md](docs/VERSION_COMPAT.md) | `tygr-orig` 环境复刻全步骤 + 依赖踩坑 |
+| [JULIET_PILOT.md](docs/JULIET_PILOT.md) | NIST Juliet 真实基准试点（方法/结果/复现）|
+| [IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md) | 详细实施记录 / 技术决策 / 踩坑 |
+| [PAPER_MATERIAL.md](docs/PAPER_MATERIAL.md) | 论文/大会材料 + 技术 Q&A 预案 |
+| [STATUS.md](docs/STATUS.md) | 项目状态、指标演进、模块清单 |
+| [architecture.md](docs/architecture.md) | 系统架构 |
 
 ## 🏗️ 系统架构
 
@@ -121,8 +137,7 @@ NeuroSymbolic-BinSec/                 # <PROJECT_ROOT>
 │       ├── metrics.py               # 评估指标
 │       └── reporter.py              # 报告生成
 │
-├── tygr/                             # TYGR组件（已有）
-│   └── TYGR0/
+├── tygr_original/                    # TYGR(含官方模型)——外部依赖,不随仓库分发,需自取
 │
 ├── tests/                            # 测试程序
 │   ├── test_programs/                # C源码（6个，均达100/100/100）
@@ -147,12 +162,18 @@ NeuroSymbolic-BinSec/                 # <PROJECT_ROOT>
 │   ├── training/                     # 训练数据
 │   └── results/                      # 实验结果
 │
-├── output/                           # 分析输出
+├── output/tygr/                      # GNN 复现脚本(env 构建/demo/恢复记录) — 已纳入仓库
+│
+├── benchmarks/juliet/                # NIST Juliet 真实基准试点(harness/用例/结果)
 │
 ├── docs/                             # 文档
-│   ├── README.md                    # 本文件
-│   ├── INTERNAL.md                  # 内部资料
-│   └── architecture.md              # 架构说明
+│   ├── GNN_INTEGRATION.md           # GNN 接入说明
+│   ├── VERSION_COMPAT.md            # tygr-orig 环境复刻
+│   ├── JULIET_PILOT.md              # Juliet 真实基准
+│   ├── IMPLEMENTATION_LOG.md        # 详细实施记录
+│   ├── PAPER_MATERIAL.md            # 论文/大会材料 + Q&A
+│   ├── STATUS.md / architecture.md  # 状态 / 架构
+│   └── INTERNAL.md                  # 内部方法学
 │
 └── requirements.txt                  # Python依赖
 ```
@@ -191,16 +212,22 @@ export MIMO_MODEL="mimo-v2.5-pro"     # 或任意你的端点提供的模型
 
 > 若使用**推理型模型**（reasoning model），其隐藏推理 token 计入 `max_tokens`；本项目已设为 4096，请勿调低（否则可见 JSON 会被截断）。
 
-### 3) 配置 TYGR（GNN 类型恢复，**可选外部依赖**）
+### 3) 配置 TYGR GNN 类型恢复（**可选外部依赖**）
 
-类型恢复阶段基于 **[TYGR](https://github.com/sefcom/TYGR)**。TYGR 未随本仓库分发（见 [致谢与许可](#-致谢与许可)）。如需启用 GNN 类型恢复：
+类型恢复阶段基于 **[TYGR](https://github.com/sefcom/TYGR)** 的官方 GlowGNN 模型。TYGR 未随本仓库分发（见 [致谢与许可](#-致谢与许可)）。**官方模型死绑 TYGR 原始版本**（torch1.8/PyG1.7/angr-pyvex 9.0.7491），需复刻一个独立环境 `tygr-orig`，主流程经子进程调用：
 
 ```bash
-git clone https://github.com/sefcom/TYGR.git tygr   # 放在 <PROJECT_ROOT>/tygr
-# 按 TYGR 自身的 README 安装 torch / torch_geometric / pyvex / elftools
+# 1) 获取 TYGR（含官方预训练模型 model/MODEL_base/x64.O0.base.model）
+git clone https://github.com/sefcom/TYGR.git tygr_original   # 放在 <PROJECT_ROOT>/tygr_original
+# 2) 一键复刻版本忠实环境（脚本 + 依赖清单已在 output/tygr/）
+bash output/tygr/build_orig_env.sh                            # 建 conda env `tygr-orig`
+# 3) 可用环境变量覆盖模型/解释器:
+#    TYGR_MODEL=<...x64.O0.base.model>  TYGR_PYTHON=<.../envs/tygr-orig/bin/python>
 ```
 
-> 未配置 TYGR 时，类型恢复阶段会**优雅回退**到启发式方法，主流水线仍可运行。
+完整步骤、依赖踩坑（capstone/protobuf 降级等）与数据流见 **[VERSION_COMPAT.md](docs/VERSION_COMPAT.md)** 和 **[GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md)**。
+> 未配置时，类型恢复阶段会**优雅回退**到自训合成模型（兜底）再到启发式，主流水线仍可运行。
+> 类型驱动 sink 识别（识别全剥离 + 自定义缓冲函数）由环境变量 `OPM_TYPE_SINKS=1` 开启（默认关）。
 
 ### 4) 运行
 
@@ -252,10 +279,10 @@ python scripts/run_batch_tests.py
 - DFG构建
 - 调用图分析
 
-### 2. GNN类型恢复
-- GAT模型 (Graph Attention Network)
-- TYGR组件集成
-- 注意力权重可视化
+### 2. GNN 类型恢复（真正接入）
+- TYGR 官方 **GlowGNN** 模型（真实 TYDA 训练）→ char*/f32*/array/struct 精确类型
+- 版本忠实复刻 `tygr-orig` 环境，主流程子进程调用；PIE 基址对齐到真实 CFG 函数
+- 类型驱动 sink 识别（`OPM_TYPE_SINKS`）：补回名字/结构启发式漏掉的自定义缓冲 sink
 
 ### 3. AI Orchestrator
 - mimo-v2.5-pro API
@@ -275,22 +302,19 @@ python scripts/run_batch_tests.py
 
 ## 🧭 项目状态与如何继续改进
 
-> **本仓库为协作中的在研项目（WIP），非最终状态。** 当前 6 个**合成**测试程序均达 100/100/100，
-> 但这只验证了各项修复的正确性；**普适性仍需更大规模、更真实的基准**。
+> **本仓库为协作中的在研项目（WIP），非最终状态。** 6 个自建程序 100/100/100 仅验证组件协同；
+> 已用 NIST Juliet 真实基准做试点（指标如实下降）。普适性仍需**更大规模**验证。
 
-给共创伙伴的路线图（优先级从高到低）：
+路线图（优先级从高到低，✅=本轮已完成）：
 
-1. **更大基准（最高优先）** —— 在 [NIST Juliet C/C++ 1.3](https://samate.nist.gov/SARD/test-suites) 的
-   相关 CWE 子集（CWE-78/121/122/134/415/416）上评测。Juliet 自带 good/bad 标签可直接当 Ground Truth。
-   建议先跑 ~20 个用例的试点，实测单例耗时再外推。**预期 100/100/100 会下降**——那才是有价值的科研数据。
-2. **提速 LLM 裁决阶段**（当前瓶颈，~30–40s/路径）—— 仅对"模糊路径"调 LLM、批处理、或换本地模型。
-3. **函数内缓冲级数据流** —— 解决 `command_injection.c` 暴露过的"同函数多缓冲错配"（`fgets` 污染 `result`
-   而 `popen` 用 `command`），需追踪每个 source/sink 实际操作的缓冲，而非粗粒度同函数配对。
-4. **真正接入 GNN 类型恢复** —— 目前 GAT 已训练但未真正用于指导污点分析（见 `docs/STATUS.md`）。
-5. **format-string 守卫推广** —— 当前 `.rodata` 守卫处理 printf/fprintf；可扩展到更多变体与间接格式串。
+1. ✅ **GNN 真正接入** —— 官方 TYGR GlowGNN 经 `tygr-orig` 环境接入；PIE 基址对齐；类型驱动 sink 识别。见 [GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md)。
+2. ✅ **真实基准试点** —— NIST Juliet 38 例：标准 F1=0.75 → +GNN F1=0.875（R 0.71→0.92）。见 [JULIET_PILOT.md](docs/JULIET_PILOT.md)。**下一步：扩到数百例 + 真实 CVE + 更多流变体。**
+3. **加固 GNN datagen 鲁棒性** —— 部分 `alloca` 等场景使 TYGR 符号执行断言失败（1/38 漏检）。
+4. **类型驱动 sink 闭环扩展** —— 当前覆盖 buffer_overflow；扩到 UAF/命令注入等，并去掉对显式注解的依赖。
+5. **提速 LLM 裁决阶段**（瓶颈 ~30–40s/路径）—— 仅对模糊路径调 LLM / 批处理 / 本地模型。
+6. **函数内缓冲级数据流** —— 解决"同函数多缓冲错配"（追踪每个 source/sink 实际操作的缓冲）。
 
-**关键设计与方法学**详见 `docs/INTERNAL.md`（§1.3 精度方法学贡献）与 `docs/architecture.md`（Precision Methodology）；
-**指标演进**（v1→v12）见上文与 `docs/STATUS.md`。
+**详细实施记录 / 技术决策 / 踩坑**见 [IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md)；**大会/论文材料 + 技术 Q&A** 见 [PAPER_MATERIAL.md](docs/PAPER_MATERIAL.md)；**指标演进**见 [STATUS.md](docs/STATUS.md)。
 
 ## 🙏 致谢与许可
 
