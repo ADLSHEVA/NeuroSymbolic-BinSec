@@ -205,7 +205,7 @@ class OPMPipeline:
                 # Configure via environment variables — never hardcode credentials.
                 #   export MIMO_API_BASE=https://<your-openai-compatible-endpoint>/v1
                 #   export MIMO_API_KEY=<your-api-key>
-                llm_api_base=os.environ.get('MIMO_API_BASE', 'https://token-plan-ams.xiaomimimo.com/v1'),
+                llm_api_base=os.environ.get('MIMO_API_BASE', 'https://api.openai.com/v1'),
                 llm_api_key=os.environ.get('MIMO_API_KEY', ''),
                 llm_model=os.environ.get('MIMO_MODEL', 'mimo-v2.5-pro'),
                 output_dir=self.config.output_dir,

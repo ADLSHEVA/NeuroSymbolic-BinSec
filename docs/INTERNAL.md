@@ -165,22 +165,21 @@ OPM (Object-Process Methodology) 模型定义了系统的对象和过程：
 
 ---
 
-### Stage 6: GNN-Based Type Recovery
+### Stage 6: GNN-Based Type Recovery（已真正接入）
 
-**功能**: 使用GNN恢复变量类型
+**功能**: 用 TYGR **官方 GlowGNN 模型**恢复变量类型（char*/f32*/array/struct）。早期本地 `gat_model.pt` 为零特征空壳，已弃用。
 
 **调用文件**:
-- `src/type_recovery/inference.py` → `recover_types()`
-  - 尝试使用TYGR
-  - 回退到启发式方法
-- `src/type_recovery/gat_model.py` → `GATTypeRecovery`
-  - GAT模型定义
-  - 注意力机制
-- `src/type_recovery/attention_report.py` → `create_attention_report_generator()`
-  - 生成GNN注意力报告
+- `src/type_recovery/inference.py` → `recover_types()` → `_recover_with_gnn()`
+  - **子进程**调用版本忠实复刻的 `tygr-orig` 环境（torch1.8/PyG1.7/angr-9.0.7491）跑官方模型 predict
+  - `_btype_to_str()` 把 TYGR btype 元组转成 OPM 类型串；组装 `TypeRecoveryOutput`
+  - 环境变量 `TYGR_MODEL`/`TYGR_PYTHON` 可覆盖；失败回退自训合成模型 → 启发式
+  - **PIE 基址对齐**：从 `cfg.angr_cfg.project.loader.main_object.mapped_base` 取基址，DWARF low_pc 双键映射到真实 CFG 函数
+- `src/pipeline.py`: Stage1 保留未 strip 的 `-g` 二进制 `state.binary_debug`，Stage6 用它喂 GNN（TYGR 靠 DWARF 定位变量）
 
-**输入**: CFG, DFG
-**输出**: TypeRecoveryOutput
+**输入**: binary_debug(-g), CFG, DFG
+**输出**: TypeRecoveryOutput（逐变量类型 + buffer/pointer 标签）
+**详见**: [GNN_INTEGRATION.md](GNN_INTEGRATION.md) · [VERSION_COMPAT.md](VERSION_COMPAT.md)
 
 ---
 
@@ -242,7 +241,8 @@ OPM (Object-Process Methodology) 模型定义了系统的对象和过程：
 **调用文件**:
 - `src/taint_analysis/taint_engine_v2.py` → `run_taint_analysis()`
   - `_find_sources()`: 查找source调用
-  - `_find_sinks_enhanced()`: 查找sink调用（GNN增强）
+  - `_find_sinks_enhanced()`: 查找sink调用
+  - `_find_sinks_by_types()`: **GNN 类型驱动 sink 识别**（`OPM_TYPE_SINKS=1` 门控，默认关）——把无名+GNN标char*缓冲的自定义函数补成 sink，并为其 main 可达调用者补 argv 源
   - `_find_taint_paths()`: 查找污点路径
   - `_filter_with_symbolic_results()`: 符号执行过滤
   - `_filter_paths_with_model()`: 启发式过滤
@@ -323,7 +323,7 @@ OPM (Object-Process Methodology) 模型定义了系统的对象和过程：
 
 **LLM配置**:
 ```python
-llm_api_base = os.environ.get('MIMO_API_BASE', 'https://token-plan-ams.xiaomimimo.com/v1')
+llm_api_base = os.environ.get('MIMO_API_BASE', 'https://api.openai.com/v1')
 llm_api_key  = os.environ.get('MIMO_API_KEY', '<硬编码兜底>')  # 支持环境变量覆盖
 llm_model    = 'mimo-v2.5-pro'
 max_tokens   = 4096   # 关键：推理模型隐藏推理 token 计入此值，1024 会截断可见 JSON
@@ -332,21 +332,21 @@ max_tokens   = 4096   # 关键：推理模型隐藏推理 token 计入此值，1
 
 ---
 
-### 3.2 GNN Type Recovery
+### 3.2 GNN Type Recovery（TYGR GlowGNN，已接入）
 
-**文件**: `src/type_recovery/`
+**文件**: `src/type_recovery/inference.py`
 
 **功能**:
-- 使用GAT模型恢复变量类型
-- 生成注意力报告
-- 集成TYGR组件
+- 用 TYGR **官方预训练 GlowGNN 模型**（真实 TYDA 训练）恢复逐变量类型
+- 经独立 `tygr-orig` conda 环境子进程调用（版本死绑 torch1.8/PyG1.7/angr-9.0.7491）
+- PIE 基址对齐 → 类型挂到真实 CFG 函数；折叠进 TypedIR
+- 类型驱动 sink 识别（`OPM_TYPE_SINKS`，默认关）：补回名字/结构启发式漏掉的自定义缓冲 sink
 
-**关键类**:
-- `GATTypeRecovery`: GAT模型
-- `TypeRecoveryDataset`: 数据集
-- `AttentionReportGenerator`: 注意力报告
+**关键函数**: `_recover_with_gnn()`、`_btype_to_str()`（`inference.py`）
 
-**模型文件**: `data/models/gat_model.pt`
+**模型**: TYGR 官方 `tygr_original/model/MODEL_base/x64.O0.base.model`（外部依赖,自取）；
+自训兜底 `output/tygr/model_stable.model`（Acc 0.887）。
+> 旧 `data/models/gat_model.pt` 为零特征空壳,已弃用。
 
 ---
 
@@ -556,7 +556,7 @@ class OPMConfig:
 class OrchestratorConfig:
     use_llm: bool = True
     llm_provider: str = 'openai'
-    llm_api_base: str = 'https://token-plan-ams.xiaomimimo.com/v1'
+    llm_api_base: str = 'https://api.openai.com/v1'
     llm_api_key: str = ''   # 从 MIMO_API_KEY 环境变量读取，切勿硬编码提交
     llm_model: str = 'mimo-v2.5-pro'
 ```
