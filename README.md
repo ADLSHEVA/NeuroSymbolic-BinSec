@@ -277,10 +277,13 @@ v1–v12 一直在 6 个自建程序上打磨,**v12 的 100% 只证明各项修�
 
 | Juliet 38 例 | Precision | Recall | F1 |
 |---|---|---|---|
-| 标准（名字/结构启发式） | 0.794 | 0.711 | 0.750 |
-| **+GNN 类型驱动** | 0.833 | **0.921** | **0.875** |
+| ① 标准（名字/结构启发式） | 0.794 | 0.711 | 0.750 |
+| ② 标准 + LLM 裁决 | 0.794 | 0.711 | 0.750（零变化）|
+| **③ +GNN 类型驱动** | 0.833 | **0.921** | **0.875** |
+| ④ +GNN 类型驱动 + LLM | 0.522 | 0.921 | 0.667 ⬇ |
 
-> GNN 把召回 **0.711 → 0.921**(救回 8 个名字匹配漏掉的 CWE121 栈溢出)。这是"GNN 有用"在真实数据上的**量化证据**。详见 [JULIET_PILOT.md](docs/JULIET_PILOT.md)、[GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md)、[IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md)。
+> **GNN 召回价值是真的**(③):召回 **0.711 → 0.921**(救回 8 个名字匹配漏掉的 CWE121 栈溢出)。
+> **LLM 精确率价值在本配置下未兑现(负结果)**:②中 LLM 是 no-op、④朴素叠加伤精确率——根因是批量消融只喂了 GNN 类型证据、**未喂 angr 符号约束**(判别"安全/危险 sink"的硬证据)。**敢报负结果**:完整"神经-符号-LLM"验证 + type-sink 降误报 + 扩规模,是我们明确的下一步(见 [JULIET_PILOT.md](docs/JULIET_PILOT.md) §7「待解决问题」)。详见 [GNN_INTEGRATION.md](docs/GNN_INTEGRATION.md)、[IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md)。
 
 ## 🧪 方法学贡献（v9–v13）
 

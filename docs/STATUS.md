@@ -149,7 +149,7 @@
 | v12 | 100% | 100% | 100% | 生命周期状态机计分 + printf .rodata 守卫 + 注释剥离 + 可达性过滤 | 全 6 程序 (27/0/0) |
 | **v13** | **100%** | **100%** | **100%** | **GNN 真正接入(官方 GlowGNN)+ PIE 基址对齐 + 类型驱动 sink + NIST Juliet 真实基准** | 全 6 程序 (27/0/0) |
 
-> **v13 真实基准(NIST Juliet 38 例)**:标准 P=0.794/R=0.711/F1=0.750 → **+GNN 类型驱动 P=0.833/R=0.921/F1=0.875**(救回 8 个 CWE121 栈溢出)。详见 [JULIET_PILOT.md](JULIET_PILOT.md)。
+> **v13 真实基准(NIST Juliet 38 例,四组消融)**:① 标准 F1=0.750 → ② 标准+LLM 0.750(LLM no-op)→ ③ **+GNN 类型驱动 0.875**(召回 0.711→0.921,救回 8 个 CWE121)→ ④ +GNN+LLM 0.667(朴素叠加伤精确率)。**GNN 召回价值已量化;LLM 精确率价值未兑现(负结果,因批量未喂符号证据)**。详见 [JULIET_PILOT.md](JULIET_PILOT.md)。
 
 ---
 
@@ -192,10 +192,12 @@ wsl -d Ubuntu-20.04 -- bash -c "cd <PROJECT_ROOT> && /root/miniconda3/envs/angr-
 > （strncpy 未受限 size / gets 无条件溢出）、生命周期 double-free/UAF 检测 **均已完成**，
 > 全 6 程序 100/100/100。
 
-1. **更大基准（✅ Juliet 试点已做 → 继续扩大）**
-   - **已完成 38 例 NIST Juliet 试点**(CWE121/122/134/78,good/bad 作 GT)：标准 F1=0.75(R=0.71)→ **GNN 类型驱动 F1=0.875(R=0.921)**。详见 [JULIET_PILOT.md](JULIET_PILOT.md)。
-   - 真实数据上指标如实从 100% 降下来,且 **GNN 把召回 +21 点**(救回 8 个 libc-名漏掉的 CWE121 栈溢出)——有价值的科研数据。
-   - 下一步:扩到数百例 + 真实 CVE + 更多流变体;加固 TYGR datagen 在 alloca 等场景的鲁棒性(1 例断言崩溃)。
+1. **更大基准（✅ Juliet 38 例四组消融已做 → 继续）**——详见 [JULIET_PILOT.md](JULIET_PILOT.md) §7「待解决问题/下一步」:
+   - **让 LLM 真正发挥过滤作用**:批量消融未喂 angr 符号约束 → LLM 成 no-op。接入符号硬证据,验证"GNN+符号+LLM"能否滤掉 goodB2G 误报。**(roadmap 第一条)**
+   - **精炼类型驱动 sink 降误报**:对称应用时 P 崩到 0.522;需更强触发条件(函数内确有无界写+污点索引)。
+   - **加固 GNN datagen 鲁棒性**:alloca 等使 TYGR `bityr_annots` 断言崩溃(1/38 漏检)。
+   - **扩规模**:全 Juliet(流变体 02–54)+ 真实 CVE + 对照基线(Ghidra/CodeQL)。
+   - **修正方法学不对称**:GNN-only 0.833 是"仅对正例开 type-sink"的乐观值。
 
 2. **提速 LLM 裁决阶段**（当前瓶颈，~30–40s/路径）
    - 仅对"模糊路径"调 LLM、批处理、或换本地模型

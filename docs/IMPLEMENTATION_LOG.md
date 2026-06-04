@@ -52,6 +52,12 @@ TYGR 依赖 2021 年的 angr/torch/PyG;直接在现代 `angr-env` 跑会崩。�
 - **结果**:阶段1 标准 P=0.794 R=0.711 F1=0.750;**阶段2 +GNN 类型驱动 P=0.833 R=0.921 F1=0.875**。GNN 救回 8 个名字匹配漏掉的 CWE121 栈溢出。
 - **诚实局限**:1 例 alloca+fgets 使 TYGR datagen `bityr_annots` 断言(非 BV 位置)崩溃;2 例 vprintf 格式串(类型 sink 不覆盖);负例 goodB2G 有 7 误报。
 
+## 5.1 GNN × LLM 消融(负结果 + 实验局限)
+- **端点踩坑**:小米 MiMo 端点 **451 跨境隔离**("Allow Cross-border Access" 未开)→ 改用 FreeModel(`gpt-5.4-mini`,OpenAI 兼容,`/v1/models` 可列模型)。
+- **harness**:`juliet_harness_llm.py`(对称开 type-sink)/ `juliet_harness_llm_clean.py`(标准检测)。复用 OPM 的 `analyze_taint_path_cot`,把 GNN 类型作证据逐路径裁决,"检出"=任一路径经裁决仍为真(阈值 0.3,首个存活即退出)。
+- **四组结果**:标准 F1=0.750 → 标准+LLM 0.750(LLM **no-op**:7 误报一个没滤、27 真阳一个没杀)→ +GNN type-sink 0.875 → +GNN+LLM **0.667**(对称 type-sink 给 good 造误报,LLM 没滤掉 → P 崩 0.522)。
+- **关键局限(诚实)**:批量为省事**只给 LLM 喂 GNN 类型,未喂完整流水线的 angr 符号约束**(`_build_symbolic_evidence` 第4块,需 Stage8)。所以证明的是"LLM+仅类型=无用",非"LLM 无用"。这是 roadmap 第一条(JULIET_PILOT §7)。
+
 ## 6. 跨切关键经验
 - **mimo-v2.5-pro 是推理模型**:隐藏 reasoning token 计入 `max_tokens`,设 1024 时可见 JSON 被截断为空 → 裁决静默失效(每路径默认 0.5/全接受)。修:`max_tokens≥4096` + 容错解析。
 - **WSL 内存**:16GB 机器(Windows 占 14GB)→ WSL 上限 6GB + swap 8GB(磁盘兜底防 OOM,不抢 RAM)。
