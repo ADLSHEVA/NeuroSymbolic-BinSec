@@ -60,6 +60,7 @@ class OPMState:
     # Objects (data)
     source_code: Optional[str] = None
     binary: Optional[str] = None
+    binary_debug: Optional[str] = None  # unstripped (DWARF) binary, for GNN type recovery
     ground_truth: Optional[Dict[str, Any]] = None
     vex_ir: Optional[Any] = None
     cfg: Optional[Any] = None
@@ -315,6 +316,10 @@ class OPMPipeline:
             output_dir=self.config.output_dir
         )
 
+        # Keep the unstripped (DWARF-carrying) binary for GNN type recovery:
+        # TYGR locates variables via DWARF, then the GNN predicts their types.
+        self.state.binary_debug = binary_path
+
         # Strip binary if configured
         if self.config.strip_binary:
             binary_path = self.compilation.strip_binary(binary_path)
@@ -377,7 +382,7 @@ class OPMPipeline:
         logger.info("Stage 6: GNN-Based Type Recovery (TYGR)")
 
         self.state.type_recovery_output = self.type_recovery.recover_types(
-            binary_path=self.state.binary,
+            binary_path=getattr(self.state, 'binary_debug', None) or self.state.binary,
             cfg=self.state.cfg,
             dfg=self.state.dfg,
             model_path=self.config.gnn_model_path,
@@ -483,7 +488,8 @@ class OPMPipeline:
                 cfg=self.state.cfg,
                 call_graph=self.state.call_graph,
                 taint_spec=taint_spec,
-                symbolic_results=self.state.symbolic_results  # Pass symbolic results
+                symbolic_results=self.state.symbolic_results,  # Pass symbolic results
+                type_recovery_output=self.state.type_recovery_output  # GNN types (Stage 6)
             )
             self.state.taint_state = taint_results
             logger.info(f"  Sources found: {taint_results['summary']['total_sources']}")

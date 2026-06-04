@@ -1,7 +1,8 @@
 # OPM 项目状态文档
 
-> **最后更新**: 2026-06-03
-> **当前版本**: v12 (作用域感知 + 生命周期计分 + printf .rodata 守卫 + 死代码过滤)
+> **最后更新**: 2026-06-04
+> **当前版本**: v13 (**GNN 类型恢复真正接入** — TYGR 官方模型 + tygr-orig 环境 + PIE 基址对齐)
+> v12: 作用域感知 + 生命周期计分 + printf .rodata 守卫 + 死代码过滤
 
 ---
 
@@ -63,6 +64,8 @@
 | memory_vuln.c | use_after_free, double_free | 100/100/100 |
 | taint_flow.c | 复杂污点流 (global/indirect/conditional/loop/pointer) | 100/100/100 |
 
+> **GNN 专项演示**（`output/tygr/demo_custom_sink.c`，非标准套件）：自定义手工缓冲拷贝 `store_record`（不调 libc，全靠 GNN 类型识别）。名字/结构启发式 **0/0/0** → `OPM_TYPE_SINKS=1` 类型驱动 **100/100/100**。
+
 ### 训练数据
 
 | 数据 | 位置 | 说明 |
@@ -88,16 +91,19 @@
 3. ✅ 符号约束硬证据（strncpy 未受限 size、gets 无条件溢出）
 4. ✅ 生命周期状态机真正检测 double-free / UAF 并计分
 
-### 2. GNN模型集成
+### 2. GNN模型集成 —— ✅ 已完成（v13）
 
-**当前状态**:
-- GAT模型已训练，但未真正用于类型恢复
-- TYGR组件可用，但需要WSL环境
+**此前问题**：本地 `gat_model.pt` 是零特征空壳，Stage 6 类型恢复恒输出 0；过去的 100/100/100 是在 **GNN 不参与**下达成的。
 
-**需要完成**:
-1. 将GAT模型集成到类型恢复流程
-2. 使用GNN结果指导污点分析
-3. 训练更精确的模型
+**现状（已接入并验证）**：
+- 改用 **TYGR 官方预训练模型** `x64.O0.base.model`（真实 TYDA 训练），经**版本忠实复刻的 `tygr-orig` conda 环境**（torch1.8/PyG1.7/angr 9.0.7491）加载；OPM 主流程在 angr-env，**子进程**调用 tygr-orig 跑 predict。
+- `src/type_recovery/inference.py::_recover_with_gnn` → predict → 组装 `TypeRecoveryOutput`（char*/pointer/array/struct/int…）。
+- **PIE 基址对齐**：DWARF `low_pc` ↔ angr 重定位地址，按 `mapped_base` 双键映射 → 类型精确归到真实 CFG 函数名。
+- 全 6 程序端到端：Stage 6 GNN 25–37 函数、Stage 7 注入 64–108 typed variables、**P/R/F1 全 1.0、零回退**。
+- **全剥离(`--strip-all`)实证**：函数名丢失成 `sub_xxxx`，GNN 仍恢复 char*/struct/指针语义 → 证明 GNN 是全剥离场景下类型语义的唯一来源。
+- 详见 [GNN_INTEGRATION.md](GNN_INTEGRATION.md) 与 [VERSION_COMPAT.md](VERSION_COMPAT.md)。
+
+**仍可继续**：把 GNN 类型真正喂进污点 sink 判定（识别全剥离 + 自定义手工缓冲拷贝函数）——见「下一步计划」。
 
 ### 3. 动态路径编排
 
@@ -149,10 +155,12 @@
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | Python | 3.10 | WSL中 |
-| angr | 9.2.212 | 二进制分析 |
-| PyTorch | 2.11.0 | 深度学习 |
-| PyG | 2.7.0 | 图神经网络 |
-| mimo-v2.5-pro | - | LLM API |
+| angr | 9.2.212 | 二进制分析（主环境 angr-env） |
+| PyTorch | 2.x | 深度学习（主环境） |
+| PyG | 2.7.0 | 图神经网络（主环境） |
+| mimo-v2.5-pro | - | LLM API（推理模型，max_tokens≥4096） |
+| **tygr-orig 环境** | py3.8 / torch1.8.1 / PyG1.7.0 / angr 9.0.7491 | **专跑 TYGR 官方 GNN 模型**（子进程调用） |
+| TYGR 官方模型 | `x64.O0.base.model` | 真实 TYDA 训练的 GlowGNN 类型恢复 |
 
 ---
 
@@ -181,9 +189,10 @@ wsl -d Ubuntu-20.04 -- bash -c "cd <PROJECT_ROOT> && /root/miniconda3/envs/angr-
 > （strncpy 未受限 size / gets 无条件溢出）、生命周期 double-free/UAF 检测 **均已完成**，
 > 全 6 程序 100/100/100。
 
-1. **更大基准（最高优先）**
-   - NIST Juliet C/C++ 1.3 相关 CWE 子集（CWE-78/121/122/134/415/416，自带 good/bad 标签作 GT）
-   - 先跑 ~20 用例试点，实测单例耗时再外推；**预期 100/100/100 会下降**——那才是有价值的科研数据
+1. **更大基准（✅ Juliet 试点已做 → 继续扩大）**
+   - **已完成 38 例 NIST Juliet 试点**(CWE121/122/134/78,good/bad 作 GT)：标准 F1=0.75(R=0.71)→ **GNN 类型驱动 F1=0.875(R=0.921)**。详见 [JULIET_PILOT.md](JULIET_PILOT.md)。
+   - 真实数据上指标如实从 100% 降下来,且 **GNN 把召回 +21 点**(救回 8 个 libc-名漏掉的 CWE121 栈溢出)——有价值的科研数据。
+   - 下一步:扩到数百例 + 真实 CVE + 更多流变体;加固 TYGR datagen 在 alloca 等场景的鲁棒性(1 例断言崩溃)。
 
 2. **提速 LLM 裁决阶段**（当前瓶颈，~30–40s/路径）
    - 仅对"模糊路径"调 LLM、批处理、或换本地模型
@@ -191,8 +200,11 @@ wsl -d Ubuntu-20.04 -- bash -c "cd <PROJECT_ROOT> && /root/miniconda3/envs/angr-
 3. **函数内缓冲级数据流**
    - 解决 `command_injection.c` 暴露的"同函数多缓冲错配"（fgets 污染 result 而 popen 用 command）
 
-4. **完成 GNN 集成**（仍未做）
-   - 让已训练的 GAT 模型真正参与类型恢复并指导污点分析
+4. **GNN 集成**（✅ 类型恢复 + ✅ 类型驱动 sink 识别**完整闭环**）
+   - `analyze()` 接 `type_recovery_output`；`_find_sinks_by_types`（`OPM_TYPE_SINKS=1` 门控）检出自定义手工缓冲 sink、分类 buffer_overflow；GT 提取器支持 `// @vuln:` 注解
+   - **实证**：custom_sink（手工缓冲拷贝、不调 libc）名字/结构启发式 **0/0/0** → GNN 类型驱动 **1.0/1.0/1.0**；标准 6 程序零回归
+   - **可扩展**：无注解自动识别更多自定义 sink 模式、扩到 UAF/命令注入
 
-5. **论文撰写**
-   - 方法论描述、实验结果、对比分析
+5. **论文 / 大会材料**（进行中）
+   - 见 [PAPER_MATERIAL.md](PAPER_MATERIAL.md)：摘要、方法论、神经-符号架构、实验、新颖性、技术 Q&A 预案
+   - 目标场合：布拉格 Linux Foundation 大会

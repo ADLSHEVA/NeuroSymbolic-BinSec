@@ -108,6 +108,19 @@ def inject_type_metadata(
                 typed_ir.pointer_map[var.global_addr] = var.is_pointer
                 typed_ir.buffer_map[var.global_addr] = var.is_buffer
 
+    # Fold in all GNN predictions directly, decoupled from CFG name/address matching
+    # (DWARF low_pc vs angr's PIE-rebased addresses don't line up by name). This is the
+    # authoritative record of the GNN's per-variable types for downstream consumers.
+    for fname, out in (type_recovery_output or {}).items():
+        for pred in getattr(out, 'predictions', []):
+            key = f"{fname}:{pred.variable_name}"
+            typed_ir.variable_types[key] = pred.predicted_type
+            is_buf = pred.predicted_type in ('array', 'pointer', 'char*')
+            loc = pred.details.get('location') if getattr(pred, 'details', None) else None
+            if isinstance(loc, (tuple, list)) and len(loc) == 2 and loc[0] == 'cfa':
+                typed_ir.buffer_map[loc[1]] = is_buf
+                typed_ir.pointer_map[loc[1]] = pred.predicted_type in ('pointer', 'char*')
+
     logger.info(f"Type injection complete: {len(typed_ir.functions)} functions, "
                 f"{len(typed_ir.variable_types)} typed variables")
 
@@ -130,6 +143,25 @@ def _process_function(func: Any, type_output: Any) -> TypedFunction:
                 'confidence': pred.confidence,
                 'source': pred.source,
             }
+
+    # Register GNN-predicted variables directly (they are DWARF-located), since the
+    # block-level IR variable extraction below is a stub. Names are function-qualified.
+    if type_output is not None:
+        for pred in getattr(type_output, 'predictions', []):
+            loc = pred.details.get('location') if getattr(pred, 'details', None) else None
+            is_cfa = isinstance(loc, (tuple, list)) and len(loc) == 2 and loc[0] == 'cfa'
+            is_reg = isinstance(loc, (tuple, list)) and len(loc) == 2 and loc[0] == 'reg'
+            typed_func.local_variables.append(TypedVariable(
+                name=f"{func.name}:{pred.variable_name}",
+                address=func.address,
+                type_name=pred.predicted_type,
+                is_pointer=pred.predicted_type in ('pointer', 'char*'),
+                is_buffer=pred.predicted_type in ('array', 'pointer', 'char*'),
+                confidence=pred.confidence,
+                source=pred.source,
+                stack_offset=loc[1] if is_cfa else None,
+                register=str(loc[1]) if is_reg else None,
+            ))
 
     # Process blocks
     for block in func.blocks:

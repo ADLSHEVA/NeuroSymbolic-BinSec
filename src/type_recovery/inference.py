@@ -68,7 +68,16 @@ def recover_types(
 
     results = {}
 
-    # Try to use TYGR if available
+    # 1) Real GNN path: version-adapted TYGR GlowGNN (datagen + trained model).
+    try:
+        results = _recover_with_gnn(binary_path, model_path, cfg)
+        if results:
+            logger.info(f"GNN type recovery: {len(results)} functions")
+            return results
+    except Exception as e:
+        logger.warning(f"GNN type recovery unavailable ({e}); falling back")
+
+    # 2) Fallbacks
     try:
         results = _recover_with_tygr(binary_path, model_path, confidence_threshold)
     except Exception as e:
@@ -76,6 +85,122 @@ def recover_types(
         results = _recover_with_heuristics(binary_path, cfg, dfg)
 
     logger.info(f"Type recovery complete: {len(results)} functions")
+    return results
+
+
+# Vendored (gitignored) TYGR and the GlowGNN model used for type recovery.
+_TYGR_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'tygr_original'))
+# Official TYGR model (trained on the real TYDA dataset) — far richer types (char*, f32*, ...)
+# than our synthetic fallback. Requires the version-faithful `tygr-orig` env (torch1.8/PyG1.7,
+# angr/pyvex 9.0.7491). Override the env's python via the TYGR_PYTHON env var.
+_DEFAULT_GNN_MODEL = os.environ.get(
+    'TYGR_MODEL',
+    os.path.join(_TYGR_DIR, 'model', 'MODEL_base', 'x64.O0.base.model'))
+_SYNTHETIC_GNN_MODEL = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'tygr', 'model_stable.model'))
+# Python interpreter of the tygr-orig conda env (must match the official model's versions).
+_TYGR_PYTHON = os.environ.get('TYGR_PYTHON', '/root/miniconda3/envs/tygr-orig/bin/python')
+
+
+def _btype_to_str(btype: Any) -> str:
+    """Convert a TYGR btype tuple to a readable OPM type string."""
+    try:
+        d = dict(btype)
+    except Exception:
+        return str(btype)
+    if 'array' in d:
+        return 'array'                 # buffer-like
+    if 'pointer' in d or 'ptr' in d:
+        inner = d.get('pointer') or d.get('ptr')
+        try:
+            di = dict(inner)
+            if di.get('base') in ('signed_char', 'unsigned_char') or di.get('bitsize') == 8:
+                return 'char*'         # string/byte buffer — key taint source/sink
+        except Exception:
+            pass
+        return 'pointer'
+    if 'base' in d:
+        bits = d.get('bitsize', 0)
+        signed = d.get('base') == 'signed'
+        return {64: 'int64' if signed else 'uint64',
+                32: 'int32' if signed else 'uint32',
+                16: 'short', 8: 'char'}.get(bits, f"int{bits}")
+    return str(btype)
+
+
+def _recover_with_gnn(binary_path: str, model_path: Optional[str], cfg: Any) -> Dict[str, Any]:
+    """Run the version-adapted TYGR GlowGNN on the binary and map its per-variable type
+    predictions into OPM's TypeRecoveryOutput. Requires the binary to carry DWARF
+    (TYGR locates variables via DWARF, then the GNN predicts their types)."""
+    import subprocess
+    import pickle as _pickle
+
+    model = model_path or _DEFAULT_GNN_MODEL
+    if not os.path.exists(model):
+        raise FileNotFoundError(f"GNN model not found: {model}")
+    if not os.path.isdir(_TYGR_DIR):
+        raise FileNotFoundError(f"TYGR not found at {_TYGR_DIR}")
+    # subprocess runs with cwd=_TYGR_DIR, so the binary path must be absolute.
+    binary_path = os.path.abspath(binary_path)
+    if not os.path.exists(binary_path):
+        raise FileNotFoundError(f"Binary not found: {binary_path}")
+
+    out_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'tygr')
+    os.makedirs(out_dir, exist_ok=True)
+    out_pkl = os.path.join(out_dir, f"_gnn_pred_{os.getpid()}.pkl")
+
+    # Run in the version-faithful tygr-orig env (its python), not OPM's angr-env.
+    py = _TYGR_PYTHON if os.path.exists(_TYGR_PYTHON) else sys.executable
+    proc = subprocess.run([py, '-m', 'src.index', 'predict', model, binary_path, out_pkl],
+                          cwd=_TYGR_DIR, capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0 or not os.path.exists(out_pkl):
+        tail = (proc.stderr or proc.stdout or '').strip().splitlines()[-3:]
+        raise RuntimeError(f"TYGR predict failed (rc={proc.returncode}): {' | '.join(tail)}")
+    with open(out_pkl, 'rb') as f:
+        var_dict = _pickle.load(f)
+    try:
+        os.remove(out_pkl)
+    except OSError:
+        pass
+
+    # map function low_pc -> function name via the CFG. The GNN's low_pc comes from DWARF
+    # (file vaddr, e.g. 0x1149) while angr rebases PIE binaries at mapped_base, so we key by
+    # BOTH the absolute address and the (address - base) offset to bridge the PIE rebase.
+    base = 0
+    try:
+        base = cfg.angr_cfg.project.loader.main_object.mapped_base
+    except Exception:
+        base = 0
+    addr_to_name = {}
+    if cfg is not None and hasattr(cfg, 'functions'):
+        for name, func in cfg.functions.items():
+            addr = getattr(func, 'address', None)
+            if addr is not None:
+                addr_to_name[addr] = name
+                addr_to_name[addr - base] = name
+
+    results: Dict[str, Any] = {}
+    for low_pc, loc_dict in var_dict.items():
+        fname = addr_to_name.get(low_pc, f"func_{hex(low_pc)}")
+        preds = []
+        for loc, pred_set in loc_dict.items():
+            vname = f"{loc[0]}_{loc[1]}"
+            for tup in pred_set:
+                btype = tup[2] if isinstance(tup, (tuple, list)) and len(tup) >= 3 else tup
+                tystr = _btype_to_str(btype)
+                preds.append(TypePrediction(variable_name=vname, predicted_type=tystr,
+                                            confidence=0.9, source='gnn',
+                                            details={'location': loc}))
+        if not preds:
+            continue
+        results[fname] = TypeRecoveryOutput(
+            function_name=fname,
+            predictions=preds,
+            variable_types={p.variable_name: p.predicted_type for p in preds},
+            confidence_scores={p.variable_name: p.confidence for p in preds},
+            pointer_labels={p.variable_name: (p.predicted_type in ('pointer', 'char*')) for p in preds},
+            buffer_labels={p.variable_name: (p.predicted_type in ('array', 'pointer', 'char*')) for p in preds},
+        )
     return results
 
 

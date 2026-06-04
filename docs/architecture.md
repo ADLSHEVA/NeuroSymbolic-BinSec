@@ -328,18 +328,32 @@ pipeline.py
 
 ---
 
-## TYGR Integration
+## TYGR Integration (GNN Type Recovery)
 
-The TYGR component (`tygr/TYGR0/`) provides:
-- DWARF debug info parsing
-- Symbolic execution with angr
-- AST data flow graph construction
-- Variable type extraction
+GNN-based type recovery integrates [TYGR](https://github.com/sefcom/TYGR)'s **GlowGNN** model.
+Implementation lives in the vendored `tygr_original/` (gitignored). See
+[GNN_INTEGRATION.md](GNN_INTEGRATION.md) and [VERSION_COMPAT.md](VERSION_COMPAT.md) for full detail.
+
+How it works:
+- **glow featurization**: angr symbolic execution builds a "glow" computation graph (nodes = values/ops,
+  edges = VEX operation classes); the GlowGNN does message passing to predict each variable's type.
+- **Official model**: we use TYGR's pretrained `model/MODEL_base/x64.O0.base.model` (trained on the real
+  TYDA dataset → rich types: `char*`, `f32*`, `array`, `struct`).
+- **Two-environment design**: the official model is pinned to torch1.8/PyG1.7/angr-9.0.7491, so it runs in a
+  faithful **`tygr-orig`** conda env. OPM (in `angr-env`) calls it via **subprocess** — the envs are decoupled.
 
 Integration points:
-1. `src/type_recovery/inference.py` imports TYGR for type recovery
-2. Data flows from TYGR to TypeRecoveryOutput
-3. Type information guides symbolic execution
+1. `src/type_recovery/inference.py::_recover_with_gnn()` — subprocess to `tygr-orig` python → `src.index predict`
+   → loads var_dict → `_btype_to_str()` → assembles `TypeRecoveryOutput` (per-variable types + buffer/pointer labels).
+   Override model/interpreter via env vars `TYGR_MODEL` / `TYGR_PYTHON`. Falls back to synthetic model, then heuristics.
+2. `src/pipeline.py` — Stage 1 keeps the unstripped `-g` binary (`state.binary_debug`); Stage 6 feeds it to the GNN
+   (TYGR locates variables via DWARF; the GNN predicts their types).
+3. **PIE base alignment** — DWARF `low_pc` is mapped to angr's rebased function addresses via `mapped_base`,
+   so types attach to the correct CFG functions.
+4. `src/typed_ir/type_injector.py` — folds GNN predictions into `TypedIR.variable_types` / buffer / pointer maps.
+
+Note: TYGR uses DWARF to *locate* variables; running on a fully-DWARF-less binary needs a preceding
+variable-recovery pass (a known next step). The analysis (CFG/DFG/taint) binary may be fully stripped.
 
 ---
 

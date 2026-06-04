@@ -7,6 +7,7 @@ This module implements actual taint propagation with:
 3. Source-sink path detection
 """
 
+import os
 import logging
 import re
 from typing import Dict, Any, List, Optional, Set, Tuple
@@ -198,7 +199,8 @@ class TaintEngineV2:
 
     def analyze(self, binary_path: str, cfg: Any, call_graph: Any,
                 taint_spec: Optional[Dict[str, Any]] = None,
-                symbolic_results: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                symbolic_results: Optional[Dict[str, Any]] = None,
+                type_recovery_output: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Perform taint analysis on the binary.
 
@@ -208,11 +210,13 @@ class TaintEngineV2:
             call_graph: Call graph
             taint_spec: Optional taint specification from AI Orchestrator
             symbolic_results: Optional results from symbolic execution
+            type_recovery_output: Optional per-function GNN type predictions (Stage 6)
 
         Returns:
             Analysis results
         """
         logger.info("Starting taint analysis V2")
+        self.type_recovery_output = type_recovery_output or {}
 
         # Update sources and sinks from taint_spec if provided
         if taint_spec:
@@ -223,6 +227,12 @@ class TaintEngineV2:
 
         # Step 2: Find all sink calls (with GNN if available)
         self._find_sinks_enhanced(call_graph, cfg)
+
+        # Step 2b: type-driven sink candidates (env-gated; off by default so existing
+        # name/structure-based behavior is unchanged). Targets fully-stripped binaries
+        # where custom buffer-handling functions have no recognizable name.
+        if os.environ.get('OPM_TYPE_SINKS') == '1':
+            self._find_sinks_by_types(call_graph)
 
         # Step 2.5: drop printf/fprintf sinks whose format string is a .rodata literal
         # (a conservative static guard for the classic format-string ambiguity).
@@ -563,6 +573,74 @@ class TaintEngineV2:
             logger.debug(f"GNN sink detection not available: {e}")
             # Fallback to rule-based
             self._find_sinks(call_graph)
+
+    def _find_sinks_by_types(self, call_graph: Any):
+        """Add type-driven sink candidates from GNN type recovery.
+
+        Targets the fully-stripped case: a custom function whose name is gone
+        (sub_xxxx) but whose parameters the GNN typed as char*/buffer and which
+        looks like a buffer-copy (>=2 buffer-ish vars). Name/structure-based
+        detection misses these; the GNN's recovered types are the only signal.
+
+        Conservative on purpose (still gated by downstream taint-path + symbolic +
+        LLM adjudication, so a flagged-but-benign function won't be reported unless
+        a tainted path actually reaches it).
+        """
+        tro = getattr(self, 'type_recovery_output', {}) or {}
+        if not getattr(self, 'type_buffer_sinks', None):
+            self.type_buffer_sinks = set()
+        if not tro:
+            logger.info("Type-driven sinks: no type info available")
+            return
+
+        graph_funcs = set()
+        for cs in call_graph.call_sites.values():
+            graph_funcs.add(cs.callee)
+            graph_funcs.add(cs.caller)
+
+        seen = {(s.function_name, s.caller_function) for s in self.sinks_found}
+        existing_src = {(s.function_name, s.caller_function) for s in self.sources_found}
+        added = 0
+        new_sink_callers = set()
+        for fname, out in tro.items():
+            # libc sources/sinks are already handled by name; skip them here
+            if fname in self.sink_functions or fname in self.source_functions:
+                continue
+            if fname not in graph_funcs:
+                continue
+            buf_vars = [p for p in getattr(out, 'predictions', [])
+                        if getattr(p, 'predicted_type', None) in ('char*', 'pointer', 'array')]
+            # require >=2 buffer-ish typed vars (dst+src style copy signature)
+            if len(buf_vars) < 2:
+                continue
+            caller, addr = None, 0
+            for a, cs in call_graph.call_sites.items():
+                if cs.callee == fname:
+                    caller, addr = cs.caller, a
+                    break
+            if caller is None or (fname, caller) in seen:
+                continue
+            seen.add((fname, caller))
+            self.sinks_found.append(TaintSink(
+                function_name=fname, call_site_addr=addr,
+                caller_function=caller, vulnerable_args=[0]))
+            self.type_buffer_sinks.add(fname)
+            new_sink_callers.add(caller)
+            added += 1
+            logger.debug(f"Type-based sink candidate: {fname} "
+                         f"({len(buf_vars)} buffer/ptr vars from GNN)")
+
+        # Register an argv source in each caller of a type-based sink that is reachable
+        # from main, so a taint path (argv -> custom buffer sink) can actually form.
+        for caller in new_sink_callers:
+            reachable = caller == 'main' or self._is_called_from_main(caller, call_graph)
+            if reachable and ('argv', caller) not in existing_src:
+                self.sources_found.append(TaintSource(
+                    function_name='argv', call_site_addr=0,
+                    caller_function=caller, tainted_args=[0]))
+                existing_src.add(('argv', caller))
+
+        logger.info(f"Type-driven sinks: {added} candidate(s) from GNN types")
 
     def _drop_literal_format_sinks(self, binary_path: str, call_graph: Any):
         """Remove printf/fprintf sinks whose format argument is a .rodata literal.
@@ -930,7 +1008,12 @@ class TaintEngineV2:
             'execv': 'command_injection',
             'execvp': 'command_injection',
         }
-        return vuln_types.get(sink_name, 'unknown')
+        if sink_name in vuln_types:
+            return vuln_types[sink_name]
+        # GNN type-driven buffer sinks (custom functions) → buffer overflow
+        if sink_name in getattr(self, 'type_buffer_sinks', set()):
+            return 'buffer_overflow'
+        return 'unknown'
 
     def _get_results(self) -> Dict[str, Any]:
         """Get analysis results with enriched context for LLM."""
@@ -1053,7 +1136,8 @@ def run_taint_analysis(
     cfg: Any,
     call_graph: Any,
     taint_spec: Optional[Dict[str, Any]] = None,
-    symbolic_results: Optional[Dict[str, Any]] = None
+    symbolic_results: Optional[Dict[str, Any]] = None,
+    type_recovery_output: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Run taint analysis on a binary.
@@ -1069,4 +1153,5 @@ def run_taint_analysis(
         Taint analysis results
     """
     engine = TaintEngineV2()
-    return engine.analyze(binary_path, cfg, call_graph, taint_spec, symbolic_results)
+    return engine.analyze(binary_path, cfg, call_graph, taint_spec, symbolic_results,
+                          type_recovery_output)

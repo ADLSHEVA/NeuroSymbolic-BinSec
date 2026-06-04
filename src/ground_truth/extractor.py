@@ -46,6 +46,7 @@ class TaintPath:
     sink: str
     path: List[str] = field(default_factory=list)
     line_numbers: List[int] = field(default_factory=list)
+    annotated: bool = False   # came from an explicit // @vuln: source-code annotation
 
 
 @dataclass
@@ -128,8 +129,10 @@ def extract_ground_truth(source_path: str) -> Dict[str, Any]:
 
     # Read source code
     with open(source_path, 'r', encoding='utf-8', errors='ignore') as f:
-        source_code = f.read()
-    source_code = _strip_comments(source_code)
+        raw_source = f.read()
+    # Parse explicit vuln annotations from the RAW source BEFORE comments are stripped.
+    annotated_paths = extract_annotations(raw_source)
+    source_code = _strip_comments(raw_source)
     lines = source_code.split('\n')
 
     # Extract information
@@ -139,6 +142,7 @@ def extract_ground_truth(source_path: str) -> Dict[str, Any]:
     sinks = identify_sinks(functions, lines)
     taint_paths = identify_taint_paths(source_code, lines, sources, sinks)
     taint_paths += identify_lifecycle_vulns(lines, _compute_function_spans(lines))
+    taint_paths += annotated_paths
     types = extract_types(variables)
 
     # Build ground truth
@@ -589,8 +593,32 @@ def extract_types(variables: List[VariableInfo]) -> Dict[str, str]:
     return types
 
 
+def extract_annotations(raw_source: str) -> List[TaintPath]:
+    """Parse explicit vulnerability annotations from source comments.
+
+    Format (case-insensitive):  // @vuln: <type> <source> -> <sink>
+    e.g.  // @vuln: buffer_overflow argv -> store_record
+
+    Lets a benchmark/demo program declare the ground-truth path for a custom
+    (non-libc) sink that the name/pattern-based extractor cannot recognise.
+    """
+    paths = []
+    pat = re.compile(r'@vuln:\s*(\w+)\s+(\w+)\s*->\s*(\w+)', re.IGNORECASE)
+    for i, line in enumerate(raw_source.split('\n'), start=1):
+        m = pat.search(line)
+        if m:
+            _vtype, source, sink = m.group(1), m.group(2), m.group(3)
+            paths.append(TaintPath(source=source, sink=sink,
+                                   path=[source, sink], line_numbers=[i],
+                                   annotated=True))
+            logger.info(f"Annotated ground-truth path: {source} -> {sink} ({_vtype})")
+    return paths
+
+
 def _is_vulnerable_path(path: TaintPath) -> bool:
     """Check if a taint path represents a vulnerability."""
+    if getattr(path, 'annotated', False):
+        return True
     vulnerable_sinks = {'strcpy', 'strcat', 'sprintf', 'gets', 'system', 'exec'}
     return path.sink in vulnerable_sinks
 
